@@ -20,7 +20,7 @@ Drive Private Video Downloader hooks into Chrome’s debugging protocol to monit
 
 ### Installation
 1. Clone or download this repository.  
-2. Open Chrome and navigate to `chrome://extensions/`.  
+2. Open Chrome and go to 'Manage extensions' or navigate to `chrome://extensions/`.  
 3. Enable **Developer mode** (toggle in the top right).  
 4. Click **Load unpacked**, then select this project’s folder.  
 5. The “Drive Private Video Downloader” icon will appear in your toolbar.
