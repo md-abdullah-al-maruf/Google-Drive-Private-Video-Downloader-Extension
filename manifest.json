@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Drive Private Video Downloader",
+  "version": "1.0",
+  "description": "Download google drive private share video.",
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "64": "icon.png",
+    "128": "icon.png",
+    "256": "icon.png",
+    "512": "icon.png"
+  },
+  "permissions": [
+    "debugger",
+    "activeTab",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "24": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png",
+      "64": "icon.png",
+      "128": "icon.png",
+      "256": "icon.png",
+      "512": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
