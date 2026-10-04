@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Drive Private Video Downloader",
-  "version": "1.0",
+  "version": "2.0",
   "description": "Download google drive private share video.",
   "icons": {
     "16": "icon.png",
@@ -16,7 +16,8 @@
     "debugger",
     "activeTab",
     "downloads",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
