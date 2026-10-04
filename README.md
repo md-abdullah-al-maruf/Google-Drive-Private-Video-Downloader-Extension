@@ -26,7 +26,7 @@ Drive Private Video Downloader detects video streams from Google Drive videos an
 
 ### Installation
 
-1. Clone or download this [**repository**](https://github.com/md-abdullah-al-maruf/Google-Drive-Private-Video-Downloader-Extension/archive/refs/heads/main.zip).
+1. Clone or download this [**repository**](https://github.com/md-abdullah-al-maruf/Google-Drive-Private-Video-Downloader-Extension/archive/refs/heads/main.zip) and unzip it.
 2. Open Chrome and go to **`chrome://extensions/`**.
 3. Enable **Developer mode** (top right toggle).
 4. Click **Load unpacked**, then select this project's folder.
