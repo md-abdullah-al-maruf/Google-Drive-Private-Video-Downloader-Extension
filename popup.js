@@ -1,9 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
+    const MAX_CONCURRENT = 3;
+
     const header           = document.getElementById('header');
-    const notDriveMessage  = document.getElementById('notDriveMessage');
     const downloadContainer = document.getElementById('downloadContainer');
-    const otherTabContainer = document.getElementById('otherTabContainer');
-    const otherTabSection  = document.getElementById('otherTabSection');
     const statusMessage    = document.getElementById('statusMessage');
     const statusDot        = document.getElementById('statusDot');
     const btnOn            = document.getElementById('btnOn');
@@ -12,11 +11,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const clearHistoryBtn  = document.getElementById('clearHistoryBtn');
     const downloadAlert    = document.getElementById('downloadAlert');
 
-    let activeTabId = null;
     let extensionEnabledCached = false;
     let pollIntervalId = null;
     const renderedItems = new Map();
-    const renderedOtherItems = new Map();
     let downloadProgressCache = {};
     let capturedRequestsCache = {};
     let statusTimeoutId = null;
@@ -90,11 +87,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e) e.remove();
     }
 
-    function createVideoItem(req, isOtherTab) {
+    function createVideoItem(req) {
         const item = document.createElement('div');
         item.className = 'video-item';
         item.dataset.requestId = req.requestId;
-        if (isOtherTab) item.classList.add('other-tab');
 
         const row = document.createElement('div');
         row.className = 'video-row';
@@ -116,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
             meta.appendChild(badge);
         }
         const metaText = document.createElement('span');
-        metaText.textContent = 'MP4 • progressive';
+        metaText.textContent = 'MP4';
         meta.appendChild(metaText);
 
         info.appendChild(title);
@@ -129,18 +125,19 @@ document.addEventListener("DOMContentLoaded", () => {
         dlBtn.className = 'download-btn';
         dlBtn.textContent = '⬇ Download';
         dlBtn.setAttribute('aria-label', 'Download ' + (req.videoTitle || 'video'));
-        dlBtn.disabled = isOtherTab;
-        if (isOtherTab) {
-            dlBtn.title = 'Switch to the source tab to download';
-        }
         dlBtn.addEventListener('click', () => {
+            if (dlBtn.disabled) return;
             chrome.runtime.sendMessage({
                 type: 'startDownload',
                 requestId: req.requestId
             }, (resp) => {
                 if (chrome.runtime.lastError) return;
                 if (resp && !resp.success) {
-                    setStatus(resp.error || 'Could not start download.', true, 4000);
+                    if (resp.limitReached) {
+                        setStatus('⏳ Maximum 3 concurrent downloads. Please wait for one to finish.', false, 4000);
+                    } else {
+                        setStatus(resp.error || 'Could not start download.', true, 4000);
+                    }
                 }
             });
         });
@@ -315,28 +312,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function syncList(requests, progress) {
         const matching = [];
-        const otherTabMatching = [];
         for (const requestId in requests) {
             const req = requests[requestId];
             if (!req.lastItagUrl || !req.videoTitle) continue;
-            const enriched = Object.assign({ requestId: requestId }, req);
-            if (req.tabId === activeTabId) {
-                matching.push(enriched);
-            } else {
-                const p = progress && progress[requestId];
-                if (p && (p.status === 'starting' || p.status === 'downloading' || p.status === 'paused')) {
-                    otherTabMatching.push(enriched);
-                }
-            }
+            matching.push(Object.assign({ requestId: requestId }, req));
         }
 
         matching.sort((a, b) => {
-            const ta = a.capturedAt || a.timestamp || 0;
-            const tb = b.capturedAt || b.timestamp || 0;
-            return tb - ta;
-        });
-
-        otherTabMatching.sort((a, b) => {
             const ta = a.capturedAt || a.timestamp || 0;
             const tb = b.capturedAt || b.timestamp || 0;
             return tb - ta;
@@ -350,21 +332,13 @@ document.addEventListener("DOMContentLoaded", () => {
             hideEmptyState();
         }
 
-        if (otherTabMatching.length === 0) {
-            otherTabSection.classList.add('hidden');
-            renderedOtherItems.forEach((el) => el.remove());
-            renderedOtherItems.clear();
-        } else {
-            otherTabSection.classList.remove('hidden');
-        }
-
         const seenIds = new Set();
         matching.forEach((req, idx) => {
             seenIds.add(req.requestId);
             let item = renderedItems.get(req.requestId);
 
             if (!item) {
-                item = createVideoItem(req, false);
+                item = createVideoItem(req);
                 renderedItems.set(req.requestId, item);
             } else {
                 const titleEl = item.querySelector('.video-title');
@@ -405,53 +379,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        const seenOtherIds = new Set();
-        otherTabMatching.forEach((req, idx) => {
-            seenOtherIds.add(req.requestId);
-            let item = renderedOtherItems.get(req.requestId);
-
-            if (!item) {
-                item = createVideoItem(req, true);
-                renderedOtherItems.set(req.requestId, item);
-            } else {
-                const titleEl = item.querySelector('.video-title');
-                if (titleEl.textContent !== (req.videoTitle || 'Untitled')) {
-                    titleEl.textContent = req.videoTitle || 'Untitled';
-                    titleEl.title = req.videoTitle || '';
-                }
-                const badge = item.querySelector('.quality-badge');
-                if (badge && req.quality && badge.textContent !== req.quality) {
-                    badge.textContent = req.quality;
-                }
-            }
-
-            const currentChildren = Array.from(otherTabContainer.children);
-            const expectedIndex = idx;
-            if (currentChildren[expectedIndex] !== item) {
-                if (expectedIndex === 0) {
-                    otherTabContainer.insertBefore(item, otherTabContainer.firstChild);
-                } else {
-                    const prev = currentChildren[expectedIndex - 1];
-                    if (prev.nextSibling) {
-                        otherTabContainer.insertBefore(item, prev.nextSibling);
-                    } else {
-                        otherTabContainer.appendChild(item);
-                    }
-                }
-            }
-
-            if (progress && progress[req.requestId]) {
-                applyProgress(item, progress[req.requestId]);
-            }
-        });
-
-        for (const [rid, el] of renderedOtherItems.entries()) {
-            if (!seenOtherIds.has(rid)) {
-                el.remove();
-                renderedOtherItems.delete(rid);
-            }
-        }
-
         let hasActive = false;
         if (progress) {
             for (const rid in progress) {
@@ -463,6 +390,57 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
         downloadAlert.classList.toggle('hidden', !hasActive);
+
+        applyConcurrencyLimit();
+    }
+
+    function countActiveDownloads() {
+        let count = 0;
+        for (const rid in downloadProgressCache) {
+            const st = downloadProgressCache[rid] && downloadProgressCache[rid].status;
+            if (st === 'starting' || st === 'downloading' || st === 'paused') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    function isItemDownloading(rid) {
+        const st = downloadProgressCache[rid] && downloadProgressCache[rid].status;
+        return st === 'starting' || st === 'downloading' || st === 'paused';
+    }
+
+    function applyConcurrencyLimit() {
+        const activeCount = countActiveDownloads();
+        const limitReached = activeCount >= MAX_CONCURRENT;
+
+        renderedItems.forEach((item, rid) => {
+            if (isItemDownloading(rid)) return;
+
+            const dlBtn = item.querySelector('.download-btn');
+            if (!dlBtn) return;
+
+            const ps = item.querySelector('.ps');
+            const progressWrap = item.querySelector('.progress-wrap');
+
+            if (limitReached) {
+                dlBtn.disabled = true;
+                dlBtn.classList.add('disabled-limit');
+                if (dlBtn.textContent.indexOf('⬇') === 0 || dlBtn.textContent === 'Retry' || dlBtn.textContent === '⬇ Re-download') {
+                    dlBtn.dataset.originalText = dlBtn.textContent;
+                    dlBtn.textContent = '⏳ Wait';
+                    dlBtn.title = 'Maximum ' + MAX_CONCURRENT + ' concurrent downloads. Waiting for one to finish.';
+                }
+            } else {
+                dlBtn.disabled = false;
+                dlBtn.classList.remove('disabled-limit');
+                if (dlBtn.dataset.originalText) {
+                    dlBtn.textContent = dlBtn.dataset.originalText;
+                    delete dlBtn.dataset.originalText;
+                }
+                dlBtn.title = '';
+            }
+        });
     }
 
     function hasActiveDownloadOnTab(tabId) {
@@ -497,6 +475,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 }, (response) => {
                     if (chrome.runtime.lastError) return;
                     if (newState && response && response.success) {
+                        if (response.isDriveTab === false) {
+                            setStatus('Open a Google Drive video page and click ON there to capture.', false, 5000);
+                            return;
+                        }
                         if (!hasActiveDownloadOnTab(tab.id)) {
                             chrome.tabs.reload(tab.id);
                         }
@@ -511,14 +493,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
     reloadBtn.addEventListener('click', () => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0] && tabs[0].id) {
-                if (hasActiveDownloadOnTab(tabs[0].id)) {
-                    setStatus('Active download on this tab — reload blocked. Cancel the download first or use the browser reload.', true, 5000);
-                    return;
+            const tab = tabs[0];
+            if (!tab || !tab.id) return;
+            if (!tab.url || !tab.url.startsWith('https://drive.google.com/')) {
+                setStatus('Reload only works on Google Drive tabs.', true, 3000);
+                return;
+            }
+            if (hasActiveDownloadOnTab(tab.id)) {
+                setStatus('Active download on this tab — reload blocked. Cancel the download first or use the browser reload.', true, 5000);
+                return;
+            }
+            chrome.tabs.reload(tab.id);
+            const toRemove = [];
+            for (const [rid, el] of renderedItems.entries()) {
+                const req = capturedRequestsCache[rid];
+                if (req && req.tabId === tab.id) {
+                    toRemove.push([rid, el]);
                 }
-                chrome.tabs.reload(tabs[0].id);
-                renderedItems.forEach(el => el.remove());
-                renderedItems.clear();
+            }
+            toRemove.forEach(([rid, el]) => {
+                el.remove();
+                renderedItems.delete(rid);
+            });
+            if (renderedItems.size === 0) {
                 showEmptyState();
             }
         });
@@ -576,24 +573,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const tab = tabs[0];
-        if (!tab || !tab.url || !tab.url.startsWith('https://drive.google.com/')) {
-            header.classList.add('hidden');
-            notDriveMessage.classList.remove('hidden');
-            return;
-        }
 
         header.classList.remove('hidden');
-        notDriveMessage.classList.add('hidden');
 
         chrome.storage.local.get(['extensionEnabled'], (result) => {
             extensionEnabledCached = result.extensionEnabled !== undefined ? result.extensionEnabled : false;
             updateToggleUI(extensionEnabledCached);
-            if (!extensionEnabledCached) {
+            if (tab && (!tab.url || !tab.url.startsWith('https://drive.google.com/'))) {
+                setStatus('On a non-Drive tab. Click ON from a Drive video page to capture.', false);
+            } else if (!extensionEnabledCached) {
                 setStatus('Click ON to start capturing.', false);
             } else {
                 showEmptyState();
             }
-            activeTabId = tab.id;
             initialSync();
         });
     });
