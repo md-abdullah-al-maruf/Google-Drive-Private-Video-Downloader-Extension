@@ -13,23 +13,21 @@ Drive Private Video Downloader detects video streams from Google Drive videos an
 ### Features
 
 * **Private/Public Videos** – Works with videos you have access to.
-* **Fast Download** – Downloads videos quickly.
 * **Progress Display** – Shows download progress and percentage.
 * **Pause / Resume / Cancel** – Easily control downloads.
 * **Quality Info** – Shows video quality such as `720p` or `1080p`.
 * **One-Click Download** – Download detected videos directly from the popup.
-* **Auto-Popup** – Opens automatically when a video is detected.
+* **Auto-Popup** – Opens automatically when a new video is detected.
 * **ON/OFF Toggle** – Turn the extension on or off.
 * **Reload** – Reload the Drive tab to detect videos again.
 * **Download History** – Keeps detected videos until you clear them.
-* **Cross-Tab Downloads** – Shows active downloads from other tabs.
 
 ### Installation
 
 1. Clone or download this [**repository**](https://github.com/md-abdullah-al-maruf/Google-Drive-Private-Video-Downloader-Extension/archive/refs/heads/main.zip) and unzip it.
 2. Open Chrome and go to **`chrome://extensions/`**.
-3. Enable **Developer mode** (top right toggle).
-4. Click **Load unpacked**, then select this project's folder.
+3. Enable **Developer mode**.
+4. Click **Load unpacked**, then select this project's unzipped folder.
 5. The extension icon appears in your toolbar.
 
 ### Usage
@@ -60,7 +58,6 @@ Drive Private Video Downloader detects video streams from Google Drive videos an
 * **`scripting`** – to inject the chunked download function into the Drive tab
 * **`downloads`** – to programmatically download video files
 * **`storage`** – to save state (enabled/disabled, captured videos, progress)
-* **`<all_urls>`** host permission – required by the Debugger API
 
 ---
 
