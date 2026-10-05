@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Drive Private Video Downloader",
   "version": "2.0",
-  "description": "Download google drive private share video with chunked streaming fetch.",
+  "description": "Download google drive private share video.",
   "icons": {
     "16": "icon.png",
     "32": "icon.png",
