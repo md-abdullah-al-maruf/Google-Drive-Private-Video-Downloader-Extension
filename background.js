@@ -3,12 +3,24 @@ let pollingTimers = {};
 let autoPopupCount = {};
 let extensionEnabled = false;
 let downloadProgress = {};
-let activeBeforeUnloadTabs = {};
 const pendingTabs = new Set();
 const attachedTabs = new Set();
 
+const MAX_CONCURRENT_DOWNLOADS = 3;
+
 const STORAGE_KEY_REQUESTS = 'capturedRequests';
 const STORAGE_KEY_PROGRESS = 'downloadProgress';
+
+function countActiveDownloads() {
+    let count = 0;
+    for (const rid in downloadProgress) {
+        const st = downloadProgress[rid] && downloadProgress[rid].status;
+        if (st === 'starting' || st === 'downloading' || st === 'paused') {
+            count++;
+        }
+    }
+    return count;
+}
 
 function persistState() {
     try {
@@ -37,8 +49,49 @@ function loadPersistedState(callback) {
                 downloadProgress[rid] = p;
             });
         }
+
+        dedupePersistedRequests();
+
         if (callback) callback();
     });
+}
+
+function dedupePersistedRequests() {
+    const seen = {};
+    const toDelete = [];
+    for (const rid in capturedRequests) {
+        const req = capturedRequests[rid];
+        if (!req.videoTitle || !req.lastItagUrl) continue;
+        const key = req.videoTitle + '||' + req.lastItagUrl;
+        if (seen[key]) {
+            const keepRid = seen[key];
+            const keepProgress = downloadProgress[keepRid];
+            const dropProgress = downloadProgress[rid];
+            const keepActive = keepProgress && (
+                keepProgress.status === 'starting' ||
+                keepProgress.status === 'downloading' ||
+                keepProgress.status === 'paused' ||
+                keepProgress.status === 'completed'
+            );
+            if (keepActive) {
+                toDelete.push(rid);
+                if (dropProgress) delete downloadProgress[rid];
+            } else if (dropProgress && !keepProgress) {
+                downloadProgress[keepRid] = dropProgress;
+                delete downloadProgress[rid];
+                toDelete.push(rid);
+            } else {
+                toDelete.push(rid);
+                if (dropProgress) delete downloadProgress[rid];
+            }
+        } else {
+            seen[key] = rid;
+        }
+    }
+    toDelete.forEach(rid => delete capturedRequests[rid]);
+    if (toDelete.length > 0) {
+        persistState();
+    }
 }
 
 chrome.storage.local.get(['extensionEnabled'], (result) => {
@@ -60,8 +113,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 if (tab.url && tab.url.includes("drive.google.com")) {
                     startAutoCaptureForTab(message.tabId);
                     pendingTabs.add(message.tabId);
+                    sendResponse({ success: true, isDriveTab: true });
+                } else {
+                    sendResponse({ success: true, isDriveTab: false });
                 }
-                sendResponse({ success: true });
             });
             return true;
         } else {
@@ -96,6 +151,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const existing = downloadProgress[requestId];
         if (existing && (existing.status === 'starting' || existing.status === 'downloading' || existing.status === 'paused')) {
             sendResponse({ success: false, error: 'Download already in progress.' });
+            return;
+        }
+
+        const activeCount = countActiveDownloads();
+        if (activeCount >= MAX_CONCURRENT_DOWNLOADS) {
+            sendResponse({
+                success: false,
+                error: 'Maximum ' + MAX_CONCURRENT_DOWNLOADS + ' concurrent downloads. Please wait for one to finish.',
+                limitReached: true
+            });
             return;
         }
 
@@ -200,24 +265,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         safeOpenPopup();
         return;
     }
-
-    if (message.type === "registerBeforeUnload") {
-        const tid = sender.tab && sender.tab.id;
-        if (tid) {
-            activeBeforeUnloadTabs[tid] = true;
-        }
-        sendResponse({ success: true });
-        return;
-    }
-
-    if (message.type === "unregisterBeforeUnload") {
-        const tid = sender.tab && sender.tab.id;
-        if (tid) {
-            delete activeBeforeUnloadTabs[tid];
-        }
-        sendResponse({ success: true });
-        return;
-    }
 });
 
 function safeOpenPopup() {
@@ -250,12 +297,15 @@ function cleanupTabDebugger(tabId) {
 
 function cleanupTabResources(tabId) {
     cleanupTabDebugger(tabId);
+    const closedTabRequestIds = new Set();
     Object.keys(capturedRequests).forEach(requestId => {
         if (capturedRequests[requestId].tabId === tabId) {
+            closedTabRequestIds.add(requestId);
             delete capturedRequests[requestId];
         }
     });
     Object.keys(downloadProgress).forEach(rid => {
+        if (!closedTabRequestIds.has(rid)) return;
         const p = downloadProgress[rid];
         const st = p && p.status;
         if (st === 'starting' || st === 'downloading' || st === 'paused') {
@@ -265,7 +315,6 @@ function cleanupTabResources(tabId) {
         }
     });
     delete autoPopupCount[tabId];
-    delete activeBeforeUnloadTabs[tabId];
     persistState();
 }
 
@@ -320,6 +369,30 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     cleanupTabResources(tabId);
 });
 
+function findDuplicateRequest(videoTitle, lastItagUrl, excludeRequestId) {
+    if (!videoTitle || !lastItagUrl) return null;
+    for (const rid in capturedRequests) {
+        if (rid === excludeRequestId) continue;
+        const req = capturedRequests[rid];
+        if (req.videoTitle === videoTitle && req.lastItagUrl === lastItagUrl) {
+            return rid;
+        }
+    }
+    return null;
+}
+
+function findDuplicateByTitle(videoTitle, excludeRequestId) {
+    if (!videoTitle) return null;
+    for (const rid in capturedRequests) {
+        if (rid === excludeRequestId) continue;
+        const req = capturedRequests[rid];
+        if (req.videoTitle === videoTitle) {
+            return rid;
+        }
+    }
+    return null;
+}
+
 chrome.debugger.onEvent.addListener((debuggeeId, method, params) => {
     const tabId = debuggeeId.tabId;
     if (!extensionEnabled && !pendingTabs.has(tabId)) return;
@@ -348,34 +421,114 @@ chrome.debugger.onEvent.addListener((debuggeeId, method, params) => {
                     if (chrome.runtime.lastError || !result || !result.body) return;
                     capturedRequests[requestId].responseBody = result.body;
                     capturedRequests[requestId].base64Encoded = result.base64Encoded;
+
+                    let newTitle = null;
+                    let newUrl = null;
+                    let newQuality = null;
+                    let newBitrate = null;
+
                     try {
                         const data = JSON.parse(result.body);
                         const fsd = data.mediaStreamingData && data.mediaStreamingData.formatStreamingData;
                         if (fsd && fsd.progressiveTranscodes && fsd.progressiveTranscodes.length > 0) {
                             const transcodes = fsd.progressiveTranscodes;
                             const last = transcodes[transcodes.length - 1];
-                            capturedRequests[requestId].lastItagUrl = last.url;
+                            newUrl = last.url;
 
                             const meta = last.transcodeMetadata || {};
                             const mimeType = meta.mimeType || '';
                             if (mimeType.startsWith('audio/')) {
-                                capturedRequests[requestId].quality = 'AUDIO';
+                                newQuality = 'AUDIO';
                             } else if (meta.height) {
-                                capturedRequests[requestId].quality = meta.height + 'p';
+                                newQuality = meta.height + 'p';
                             } else if (meta.width) {
-                                capturedRequests[requestId].quality = meta.width + 'p';
+                                newQuality = meta.width + 'p';
                             } else {
-                                capturedRequests[requestId].quality = '';
+                                newQuality = '';
                             }
                             if (meta.maxContainerBitrate) {
-                                capturedRequests[requestId].bitrate = meta.maxContainerBitrate;
+                                newBitrate = meta.maxContainerBitrate;
                             }
                         }
                         if (data.mediaMetadata && data.mediaMetadata.title) {
-                            capturedRequests[requestId].videoTitle = data.mediaMetadata.title;
+                            newTitle = data.mediaMetadata.title;
                         }
-                        persistState();
                     } catch (e) {}
+
+                    if (newTitle && newUrl) {
+                        const dupId = findDuplicateRequest(newTitle, newUrl, requestId);
+                        if (dupId) {
+                            const oldReq = capturedRequests[dupId];
+                            if (oldReq) {
+                                oldReq.lastItagUrl = newUrl;
+                                if (newQuality !== null) oldReq.quality = newQuality;
+                                if (newBitrate) oldReq.bitrate = newBitrate;
+                                oldReq.videoTitle = newTitle;
+                            }
+                            delete capturedRequests[requestId];
+                            if (downloadProgress[requestId]) {
+                                if (!downloadProgress[dupId]) {
+                                    downloadProgress[dupId] = downloadProgress[requestId];
+                                    downloadProgress[dupId].title = newTitle;
+                                } else {
+                                    const existingStatus = downloadProgress[dupId].status;
+                                    const incomingStatus = downloadProgress[requestId].status;
+                                    if (existingStatus === 'completed' && incomingStatus !== 'completed') {
+                                    } else if (existingStatus !== 'starting' && existingStatus !== 'downloading' && existingStatus !== 'paused') {
+                                        downloadProgress[dupId] = Object.assign(
+                                            {},
+                                            downloadProgress[dupId],
+                                            downloadProgress[requestId],
+                                            { title: newTitle }
+                                        );
+                                    }
+                                }
+                                delete downloadProgress[requestId];
+                            }
+                            persistState();
+                            return;
+                        }
+
+                        const dupTitleId = findDuplicateByTitle(newTitle, requestId);
+                        if (dupTitleId) {
+                            const existingProgress = downloadProgress[dupTitleId];
+                            const keepDupProgress = existingProgress && (
+                                existingProgress.status === 'starting' ||
+                                existingProgress.status === 'downloading' ||
+                                existingProgress.status === 'paused' ||
+                                existingProgress.status === 'completed'
+                            );
+
+                            if (keepDupProgress) {
+                                const oldReq = capturedRequests[dupTitleId];
+                                if (oldReq) {
+                                    oldReq.lastItagUrl = newUrl;
+                                    if (newQuality !== null) oldReq.quality = newQuality;
+                                    if (newBitrate) oldReq.bitrate = newBitrate;
+                                    oldReq.videoTitle = newTitle;
+                                }
+                                delete capturedRequests[requestId];
+                                persistState();
+                                return;
+                            }
+
+                            delete capturedRequests[dupTitleId];
+                            if (downloadProgress[dupTitleId] && !downloadProgress[requestId]) {
+                                downloadProgress[requestId] = downloadProgress[dupTitleId];
+                                downloadProgress[requestId].title = newTitle;
+                                delete downloadProgress[dupTitleId];
+                            } else if (downloadProgress[dupTitleId]) {
+                                delete downloadProgress[dupTitleId];
+                            }
+                        }
+                    }
+
+                    if (newUrl) capturedRequests[requestId].lastItagUrl = newUrl;
+                    if (newQuality !== null) capturedRequests[requestId].quality = newQuality;
+                    if (newBitrate) capturedRequests[requestId].bitrate = newBitrate;
+                    if (newTitle) capturedRequests[requestId].videoTitle = newTitle;
+
+                    persistState();
                 }
             );
         }
@@ -462,9 +615,6 @@ function chunkedDownloadFn(url, videoTitle, requestId) {
     try {
         window.addEventListener('beforeunload', beforeUnloadHandler);
     } catch (e) {}
-    try {
-        chrome.runtime.sendMessage({ type: 'registerBeforeUnload' }, () => { void chrome.runtime.lastError; });
-    } catch (e) {}
 
     const cleanup = () => {
         try {
@@ -472,9 +622,6 @@ function chunkedDownloadFn(url, videoTitle, requestId) {
         } catch (e) {}
         try {
             window.removeEventListener('beforeunload', beforeUnloadHandler);
-        } catch (e) {}
-        try {
-            chrome.runtime.sendMessage({ type: 'unregisterBeforeUnload' }, () => { void chrome.runtime.lastError; });
         } catch (e) {}
     };
 
