@@ -155,8 +155,6 @@
         }
         .video-item:hover { border-color: #3a3a3a; }
         .video-item.is-active { border-color: #2563eb; }
-        .video-item.other-tab { opacity: 0.75; }
-        .video-item.other-tab .download-btn { background: #444; cursor: not-allowed; }
 
         button:focus-visible {
             outline: 2px solid #60a5fa;
@@ -228,6 +226,8 @@
         }
         .download-btn:hover:not(:disabled) { background: #1d4ed8; }
         .download-btn:disabled { background: #444; color: #aaa; cursor: not-allowed; }
+        .download-btn.disabled-limit { background: #ca8a04; color: #fff; cursor: not-allowed; opacity: 0.7; }
+        .download-btn.disabled-limit:hover { background: #ca8a04; }
         .download-btn.hidden { display: none !important; }
 
         .ctrl-btn {
@@ -341,102 +341,6 @@
         }
         .footer a { color: #5b9bd5; text-decoration: none; }
         .footer a:hover { text-decoration: underline; }
-
-        .not-drive-screen {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 30px;
-            text-align: center;
-            background: radial-gradient(circle at top, #1a1a1a 0%, #0f0f0f 70%);
-            gap: 18px;
-        }
-        .not-drive-icon-wrap {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #1f1f1f, #2c2c2c);
-            border: 1px solid #3a3a3a;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-            position: relative;
-        }
-        .not-drive-icon-wrap::after {
-            content: '';
-            position: absolute;
-            inset: -4px;
-            border-radius: 50%;
-            border: 1px solid rgba(91, 155, 213, 0.2);
-            animation: pulse-ring 2.5s ease-out infinite;
-        }
-        @keyframes pulse-ring {
-            0%   { transform: scale(0.95); opacity: 0.8; }
-            100% { transform: scale(1.15); opacity: 0; }
-        }
-        .not-drive-icon-wrap .icon {
-            font-size: 32px;
-            line-height: 1;
-        }
-        .not-drive-title {
-            font-size: 15px;
-            font-weight: 600;
-            color: #fff;
-            letter-spacing: 0.2px;
-        }
-        .not-drive-text {
-            font-size: 12px;
-            color: #888;
-            line-height: 1.6;
-            max-width: 280px;
-        }
-        .not-drive-steps {
-            list-style: none;
-            padding: 0;
-            margin-top: 6px;
-            text-align: left;
-            font-size: 11px;
-            color: #888;
-            line-height: 1.9;
-        }
-        .not-drive-steps li {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .not-drive-steps .step-num {
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #2563eb;
-            color: #fff;
-            font-size: 10px;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-        .open-drive-btn {
-            margin-top: 8px;
-            background: #2563eb;
-            color: #fff;
-            border: none;
-            padding: 9px 22px;
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.15s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            text-decoration: none;
-        }
-        .open-drive-btn:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
@@ -459,39 +363,14 @@
         </div>
     </div>
 
-    <div id="notDriveMessage" class="not-drive-screen hidden">
-        <div class="not-drive-icon-wrap">
-            <span class="icon">📁</span>
-        </div>
-        <div class="not-drive-title">Open a Google Drive video</div>
-        <div class="not-drive-text">
-            This extension only works on Google Drive video pages. Capture and download progressive MP4 streams directly from any Drive video URL.
-        </div>
-        <ol class="not-drive-steps">
-            <li><span class="step-num">1</span><span>Open a Drive video URL</span></li>
-            <li><span class="step-num">2</span><span>Click the extension icon</span></li>
-            <li><span class="step-num">3</span><span>Toggle ON to start capturing</span></li>
-            <li><span class="step-num">4</span><span>Click ⬇ Download on the video card</span></li>
-        </ol>
-        <a href="https://drive.google.com/" target="_blank" class="open-drive-btn">
-            <span>📂</span> Open Google Drive
-        </a>
-    </div>
-
     <div class="body">
         <div id="downloadContainer"></div>
-        <div id="otherTabSection" class="hidden" style="border-top: 1px solid #2c2c2c; padding: 10px; flex-shrink: 0;">
-            <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600; letter-spacing: 0.3px;">
-                📂 ACTIVE ON OTHER TABS
-            </div>
-            <div id="otherTabContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
-        </div>
         <div id="statusMessage" class="hidden"></div>
     </div>
 
     <div class="alert-banner hidden" id="downloadAlert">
         <span class="blink"></span>
-        Download in progress — please don't close this tab.
+        Download in progress — keep the source Drive tab open.
     </div>
 
     <div class="footer">
